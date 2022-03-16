@@ -5,3 +5,43 @@ date: "`r format(Sys.time(), '%d %B, %Y')`"
 output: html_document
 ---
 
+Have to get the list of notable swedes by section.
+
+
+Can scrape or try and query it. Let's have a look.
+
+
+```{r}
+# install.packages("WikidataR","WikidataQueryServiceR")
+library(tidyverse)
+library(WikidataR)
+library(WikidataQueryServiceR)
+```
+
+```{r}
+swedes <- find_item("swedes", language = "en", limit = 20)
+
+swedes
+```
+
+```{r}
+q <- qid_from_name(name = "Swedes")
+
+q %>% as_tibble()
+
+swedes <- find_item("swedes")
+
+swedes %>% as.character() %>% as_tibble()
+```
+
+
+
+```{r}
+list <- get_item("Q3418353")
+
+list
+
+list_topics <- extract_claims(list, "main topic")
+get_names_from_properties(article.topics.p)
+```
+

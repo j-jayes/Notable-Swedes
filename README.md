@@ -1,9 +1,13 @@
-# Title
+# Notable Swedes
 
 ## Purpose
 
-Describes project
+kerstin mentioned in a seminar today that it would be interesting to look at where people were born in Sweden over time. The context is a paper about locational amenities that come from agglomoration. 
+
+It would be interesting to see if more of the notable people in one category are born in the big cities today compared to the past. We can start with Sweden and then go a bit more broad.
 
 ## Process
 
-Describes how far I am
+Idea - look at Wikipedia and get the list of notable swedes - then go to Wikidata and get the information about them in a nice structured format. 
+
+
