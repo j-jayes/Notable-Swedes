@@ -18,30 +18,407 @@ library(WikidataR)
 library(WikidataQueryServiceR)
 ```
 
-```{r}
-swedes <- find_item("swedes", language = "en", limit = 20)
+# First I need to get the list of famous swedes
 
-swedes
+# Python
+
+```{r}
+library(reticulate)
+```
+
+```{python}
+import requests
+import pprint
+pp = pprint.PrettyPrinter(indent=3)
+
+subject = 'Swedes'
+
+url = 'https://en.wikipedia.org/w/api.php'
+
+params = {
+        'action': 'query',
+        'format': 'json',
+        'titles': subject,
+        'prop': 'extracts',
+        'exintro': True,
+        'explaintext': True,
+    }
+ 
+response = requests.get(url, params=params)
+data = response.json()
+
+data["query"]
+pp.pprint(data)
+
+
+page = next(iter(data['query']['pages'].values()))
+print(page['extract'])
+
+```
+
+
+### following a tutorial
+
+[linked here](https://www.youtube.com/watch?v=TXdjxnjCvng)
+
+P is a key, Q is a value.
+
+Everything is encoded like this.
+
+You query it with the SPARQL language.
+
+```{r}
+ministers <- query_wikidata("SELECT ?minister
+               WHERE {
+               
+               ?minister wdt:P106 wd:Q1423891.
+               
+               }
+               ")
+
+swedes <- query_wikidata("SELECT ?swede ?swedeLabel ?BirthplaceLabel ?Birthdate ?coords
+               WHERE {
+               
+               ?swede wdt:P27 wd:Q34 .
+               ?swede wdt:P19 ?Birthplace .
+               ?swede wdt:P569 ?Birthdate .
+               ?swede wdt:P26 ?Spouse
+               ?Birthplace wdt:P625 ?coords .
+               
+               SERVICE wikibase:label{bd:serviceParam wikibase:language 'AUTO_LANGUAGE,en' .}
+               }
+               ")
+
+swedes %>% view
+
+```
+
+
+
+
+## Marriage by occupation
+
+```{python}
+import requests
+import pprint
+pp = pprint.PrettyPrinter(indent=3)
+
+subject = 'Python (programming language)'
+url = 'https://en.wikipedia.org/w/api.php'
+params = {
+        'action': 'query',
+        'format': 'json',
+        'titles': subject,
+        'prop': 'extracts',
+        'exintro': True,
+        'explaintext': True,
+    }
+ 
+response = requests.get(url, params=params)
+data = response.json()
+
+page = next(iter(data['query']['pages'].values()))
+print(page['extract'][:73])
+
+pp.pprint(data)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+swedes <- query_wikidata('SELECT ?person ?personLabel ?occupation ?occupationLabel ?Birthplace ?BirthplaceLabel ?Birthdate ?coords
+WHERE 
+{
+  ?person wdt:P27 wd:Q34 .
+  ?person wdt:P106 ?occupation .
+  ?person wdt:P19 ?Birthplace .
+  ?person wdt:P569 ?Birthdate .
+  ?Birthplace wdt:P625 ?coords .
+  
+  SERVICE wikibase:label { bd:serviceParam wikibase:language "[AUTO_LANGUAGE],en". }
+}
+               ')
+
+swedes %>% view
+
+swedes %>% 
+  separate(coords, into = c("lat", "long"), sep = " ") %>% 
+  mutate(across(c(lat, long), parse_number)) %>% view
 ```
 
 ```{r}
-q <- qid_from_name(name = "Swedes")
+swedes_long <- query_wikidata('SELECT ?person ?personLabel
+WHERE 
+{
+  ?person wdt:P27 wd:Q34 .
 
-q %>% as_tibble()
+  SERVICE wikibase:label { bd:serviceParam wikibase:language "[AUTO_LANGUAGE],en". }
+}
+               ')
 
-swedes <- find_item("swedes")
+swedes_long
 
-swedes %>% as.character() %>% as_tibble()
+```
+
+Following Tom Mock's JSON tutorial [here](https://themockup.blog/posts/2020-05-22-parsing-json-in-r-with-jsonlite/)
+
+```{r}
+df <- swedes_long
+
+library(tidyverse)
+library(jsonlite)
+
+# listviewer::jsonedit(raw_json)
+
+get_info <- function(url) {
+  parse_pattern <- function(q_string, p_string, end_val) {
+    raw_json %>%
+      purrr::pluck("entities", q_string, "claims", p_string, "mainsnak", "datavalue", "value", end_val)
+  }
+
+  q_string <- str_remove(url, "http://www.wikidata.org/entity/")
+
+  message("Getting information about ", q_string)
+
+  raw_json <- jsonlite::fromJSON(str_c(url, ".json"))
+
+  gender <- parse_pattern(q_string, "P21", "numeric-id") %>% paste0(collapse = "; ")
+
+  occ <- parse_pattern(q_string, "P106", "numeric-id") %>% paste0(collapse = "; ")
+
+  dob <- parse_pattern(q_string, "P569", "time") %>% paste0(collapse = "; ")
+  
+  pob <- parse_pattern(q_string, "P19", "numeric-id") %>% paste0(collapse = "; ")
+
+  tibble(gender, occ, dob, pob)
+}
+
+df <- df %>% 
+  # head(50) %>%
+  mutate(info = map(person, possibly(get_info, otherwise = "failed")))
+
+```
+
+Iterator function
+
+```{r}
+df %>% 
+  count() %>% 
+  summarise(n / 50)
+
+# 1760
+
+df <- df %>% 
+  mutate(group_num = row_number() - row_number() %% 10)
+
+gn_list <- df %>% 
+  select(group_num) %>% distinct() %>% pull()
+
+iterator <- function(gn){
+  
+  message("Processing group ", gn)
+  
+  df_out <- df %>% 
+    filter(group_num == gn) %>% 
+    mutate(info = map(person, possibly(get_info, otherwise = "failed")))
+  
+  path <- str_c("data/df_", gn, ".rds")
+  
+  df_out %>% write_rds(path, compress = "gz")
+  
+}
+
+
+for (i in gn_list){
+  
+  iterator(i)
+  
+}
+
+```
+
+
+
+
+
+
+```{r}
+df %>% 
+  unnest(info) %>%
+  select(pob)
+
+item <- get_item("927776")
+
+extract_claims(item, claims = c("P625"))
+
+
+
+```
+
+
+### Function to get the coordinates and labels
+
+```{r}
+library(httr)
+# listviewer::jsonedit(jsonlite::fromJSON(json_result))
+
+base <- "https://www.wikidata.org/w/api.php"
+
+    
+id <- "Q927776"
+
+api_params <- 
+  paste("?action=wbgetentities",
+        paste0("ids=", id), 
+        "props=claims",
+        "languages=en",
+        "format=json",
+
+        sep = "&")
+
+api_call <- paste0(base, api_params)
+
+api_result <- GET(api_call)
+
+json_result <- content(api_result, "text", encoding="UTF-8")
+
+json_result <- jsonlite::fromJSON(json_result)
+
+parse_coords <- function(id, end_val) {
+    json_result %>%
+      purrr::pluck("entities", id, "claims", "P131", "mainsnak", "datavalue", "value")#, end_val)
+}
+
+
+parse_coords(id, "latitude")
+
+```
+
+```{r}
+get_claims_location <- function(id) {
+  parse_claims <- function(id, claim, end_val) {
+    json_result %>%
+      purrr::pluck("entities", id, "claims", claim, "mainsnak", "datavalue", "value", end_val)
+  }
+
+  parse_label <- function(id) {
+    json_result %>%
+      purrr::pluck("entities", id, "labels", "en", "value")
+  }
+
+  base <- "https://www.wikidata.org/w/api.php"
+
+  api_params <-
+    paste("?action=wbgetentities",
+      paste0("ids=", id),
+      "props=claims|labels",
+      "languages=en",
+      "format=json",
+      sep = "&"
+    )
+
+  api_result <- GET(paste0(base, api_params))
+
+  json_result <- content(api_result, "text", encoding = "UTF-8") %>% jsonlite::fromJSON()
+
+  label <- parse_label(id) %>% paste0(collapse = "; ")
+    
+  latitude <- parse_claims(id, "P625", "latitude") %>% paste0(collapse = "; ")
+
+  longitude <- parse_claims(id, "P625", "longitude") %>% paste0(collapse = "; ")
+
+  municipality <- parse_claims(id, "P131", "numeric-id") %>% paste0(collapse = "; ")
+
+  tibble(label, latitude, longitude, municipality)
+}
+
+listviewer::jsonedit(json_result)
 ```
 
 
 
 ```{r}
-list <- get_item("Q3418353")
+tbl_rds <- 
+    list.files(path = "data/", pattern = "*.rds") %>% str_c("data/", .) %>% 
+  map_df(~read_rds(.))
 
-list
 
-list_topics <- extract_claims(list, "main topic")
-get_names_from_properties(article.topics.p)
+df <- tbl_rds %>% 
+  filter(info != "failed") %>% 
+  unnest(info)
+
+
+df %>% head(5) %>% view
+```
+
+
+Things I need to classify:
+
+- Gender
+- occ
+- pob
+
+Things I need to process:
+- dob
+
+```{r}
+df %>% count(gender)
+
+df %>%
+  separate_rows(occ, sep = "; ") %>% count(occ, sort = T)
+```
+
+Getting occupational info: for example, Q1622272
+
+```{r}
+get_occ_info <- function(id) {
+  parse_label <- function(id) {
+    json_result %>%
+      purrr::pluck("entities", id, "labels", "en", "value")
+  }
+
+  parse_claims <- function(id, claim, end_val) {
+    json_result %>%
+      purrr::pluck("entities", id, "claims", claim, "mainsnak", "datavalue", "value", end_val)
+  }
+
+  base <- "https://www.wikidata.org/w/api.php"
+
+  api_params <-
+    paste("?action=wbgetentities",
+      paste0("ids=", id),
+      "props=claims|labels|descriptions",
+      "languages=en",
+      "format=json",
+      sep = "&"
+    )
+
+  api_result <- GET(paste0(base, api_params))
+
+  json_result <- content(api_result, "text", encoding = "UTF-8") %>% jsonlite::fromJSON()
+
+  label <- parse_label(id) %>% paste0(collapse = "; ")
+
+  isco <- json_result %>%
+    purrr::pluck("entities", id, "claims", "P952", "mainsnak", "datavalue", "value") %>%
+    paste0(collapse = "; ")
+
+
+  tibble(label, isco)
+}
+
+id = "Q1622272"
+
 ```
 
